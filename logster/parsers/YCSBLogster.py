@@ -90,8 +90,8 @@ class YCSBLogster(LogsterParser):
         '''This function should digest the contents of one line at a time, updating
         object's state variables. Takes a single argument, the line to be parsed.'''
 
-        if not re.search('NetworkLatencyMetrics', line):
-            return None
+        if re.search('NetworkLatencyMetrics', line) == None:
+            raise LogsterParsingException
         
         cutted_line = line[6:]
 
