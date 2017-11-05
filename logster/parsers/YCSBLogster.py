@@ -1,13 +1,27 @@
-import time
+###  JsonLogster parses a file of JsonObjects, each on their own line.
+###  The object will be traversed, and each leaf node of the object will
+###  be keyed by a concatenated key made up of all parent keys.
+###
+###  For example:
+###  sudo ./logster --dry-run --output=ganglia --parser-options '--key-separator _' JsonLogster /var/cache/stats.log.json
+###
+import sys
 import re
-import optparse
 import json
+import optparse
 
 from logster.logster_helper import MetricObject, LogsterParser
 from logster.logster_helper import LogsterParsingException
 
 class YCSBLogster(LogsterParser):
-    
+    '''
+    JsonLogster parses a file of JsonObjects, each on their own line.
+    The object will be traversed, and each leaf node of the object will
+    be keyed by a concatenated key made up of all parent keys.
+    You can subclass this class and implement the key_filter method
+    to skip or transform specific keys in the object hierarchy.
+    '''
+
     def __init__(self, option_string=None):
         '''Initialize any data structures or variables needed for keeping track
         of the tasty bits we find in the log we are parsing.'''
@@ -17,56 +31,13 @@ class YCSBLogster(LogsterParser):
             options = option_string.split(' ')
         else:
             options = []
-        
+
         optparser = optparse.OptionParser()
-        
+        optparser.add_option('--key-separator', '-k', dest='key_separator', default='.',
+        help='Key separator for flattened json object key name. Default: \'.\'')
+
         opts, args = optparser.parse_args(args=options)
-            
-        self.levels = ['INFO']
-        
-        for level in self.levels:
-            # Track counts from 0 for each log level
-            setattr(self, level, 0)
-        
-        # Regular expression for matching lines we are interested in, and capturing
-        # fields from the line (in this case, a log level such as WARN, ERROR, or FATAL).
-        self.reg = re.compile('[0-9-_:\.]+ (?P<log_level>%s)' % ('|'.join(self.levels)) )
-        
-        
-    def parse_line(self, line):
-        '''This function should digest the contents of one line at a time, updating
-        object's state variables. Takes a single argument, the line to be parsed.'''
-        
-        try:
-            # Apply regular expression to each line and extract interesting bits.
-            regMatch = self.reg.match(line)
-            
-            if regMatch:
-                linebits = regMatch.groupdict()
-                log_level = linebits['log_level']
-                
-                if log_level in self.levels:
-                    current_val = getattr(self, log_level)
-                    setattr(self, log_level, current_val+1)
-                    self.parse_json_line(self, line[6:]) # all except INFO
-
-            else:
-                raise LogsterParsingException("regmatch failed to match")
-                
-        except Exception as e:
-            raise LogsterParsingException("regmatch or contents failed with %s" % e)
-            
-    def parse_json_line(self, line):
-        '''This function should digest the contents of one line at a time, updating
-        object's state variables. Takes a single argument, the line to be parsed.'''
-
-        try:
-            json_data = json.loads(line)
-        except Exception as e:
-            raise LogsterParsingException("{0} - {1}".format(type(e), e))
-        self.metrics = self.flatten_object(json.loads(line), self.key_separator, self.key_filter)
-
-
+        self.key_separator = opts.key_separator
 
     def key_filter(self, key):
         '''
@@ -114,6 +85,21 @@ class YCSBLogster(LogsterParser):
                 items[final_key] = item
 
         return items
+
+    def parse_line(self, line):
+        '''This function should digest the contents of one line at a time, updating
+        object's state variables. Takes a single argument, the line to be parsed.'''
+
+        if not re.search('NetworkLatencyMetrics', line):
+            return None
+        
+        cutted_line = line[6:]
+
+        try:
+            json_data = json.loads(cutted_line)
+        except Exception as e:
+            raise LogsterParsingException("{0} - {1}".format(type(e), e))
+        self.metrics = self.flatten_object(json.loads(cutted_line), self.key_separator, self.key_filter)
 
     def get_state(self, duration):
         '''Run any necessary calculations on the data collected from the logs
